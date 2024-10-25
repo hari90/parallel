@@ -111,7 +111,7 @@ void runCommand(const std::string& command, Stats& stats) {
   if (waitpid(pid, &status, 0) == -1) {
     std::cerr << "Failed waiting for '" << command << "': " << strerror(errno)
               << std::endl;
-    exit(EXIT_CANCELED);
+    _exit(EXIT_CANCELED);
   }
 
   stats.success = true;
@@ -143,7 +143,7 @@ void PrintStats(const std::vector<Stats>& stats) {
 
 void PrintUsageAndExit() {
   std::cerr << "Invalid arguments" << std::endl << kUsage << std::endl;
-  exit(1);
+  _exit(1);
 }
 
 std::pair<std::vector<std::string>, size_t> ParseArgs(int argc, char* argv[]) {
@@ -199,5 +199,5 @@ int main(int argc, char* argv[]) {
 
   PrintStats(stats);
 
-  return 0;
+  _exit(0);
 }
