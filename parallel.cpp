@@ -14,8 +14,8 @@ limitations under the License.
 
 // Program that runs the provided commands in parallel
 
-#include <unistd.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include <cstdlib>
 #include <cstring>
@@ -23,26 +23,55 @@ limitations under the License.
 #include <thread>
 #include <vector>
 
+const auto kUsage =
+    R"(./parallel [-n <parallelism count>] '<command1>' '<command2>' ...
+    Each command is broken down by spaces and double quoted(") strings are treated as a single argument.
+    To escape a double quote, use two double quotes("").
+    To escape a single quote, use ''\''.)";
 
-
-/* Exit statuses for programs like 'env' that exec other programs.
-   Copied from coreutils' system.h */
+// Exit statuses for programs like 'env' that exec other programs. Copied from
+// coreutils' system.h
 enum {
   EXIT_CANCELED = 125,      /* Internal error prior to exec attempt.  */
   EXIT_CANNOT_INVOKE = 126, /* Program located, but not usable.  */
   EXIT_ENOENT = 127         /* Could not find program to exec.  */
 };
 
-auto Split(const std::string& s, char seperator) {
-  std::vector<std::string> output;
-  size_t prev_pos = 0, pos = 0;
-  while ((pos = s.find(seperator, pos)) != std::string::npos) {
-    std::string substring(s.substr(prev_pos, pos - prev_pos));
-    output.push_back(substring);
-    prev_pos = ++pos;
+// Split the command line arguments by separator.
+// If we have a "quoted string", we will treat it as a single argument.
+auto Split(const std::string& argv, char separator) {
+  std::vector<std::string> result;
+  std::string arg;
+  bool in_quote = false;
+  for (const char* p = argv.c_str(); *p; ++p) {
+    if (*p == separator && !in_quote) {
+      if (!arg.empty()) {
+        result.push_back(arg);
+        arg.clear();
+      }
+    } else if (*p == '"') {
+      if (in_quote && *(p + 1) != separator) {
+        if (*(p + 1) == '"') {
+          arg.push_back(*p);
+          p++;
+        } else {
+          result.push_back(arg);
+          arg.clear();
+        }
+      }
+      in_quote = !in_quote;
+    } else {
+      if ((*p != ' ' && *p != '\n') || in_quote) {
+        arg.push_back(*p);
+      }
+    }
   }
-  output.push_back(s.substr(prev_pos, pos - prev_pos));  // Last word
-  return output;
+
+  if (!arg.empty()) {
+    result.push_back(arg);
+  }
+
+  return result;
 }
 
 struct Stats {
@@ -60,20 +89,19 @@ void runCommand(const std::string& command, Stats& stats) {
   }
 
   if (pid == 0) {
-    // Child process.
-    int saved_errno;
-
     auto cmd = Split(command, ' ');
     std::vector<char*> args;
     for (auto& arg : cmd) {
       args.push_back(&arg[0]);
     }
     args.push_back(nullptr);
+    // Child process.
+    int saved_errno;
 
     execvp(args[0], args.data());
     saved_errno = errno;
 
-    std::cerr << "Cannot run " << args[0] << ": " << strerror(saved_errno)
+    std::cerr << "Cannot run '" << command << "': " << strerror(saved_errno)
               << std::endl;
     _exit(saved_errno == ENOENT ? EXIT_ENOENT : EXIT_CANNOT_INVOKE);
   }
@@ -113,6 +141,37 @@ void PrintStats(const std::vector<Stats>& stats) {
             << "Max: " << max / 1000 << "ms" << std::endl;
 }
 
+void PrintUsageAndExit() {
+  std::cerr << "Invalid arguments" << std::endl << kUsage << std::endl;
+  exit(1);
+}
+
+std::pair<std::vector<std::string>, size_t> ParseArgs(int argc, char* argv[]) {
+  size_t parallelism = 1;
+  std::vector<std::string> commands;
+  for (int i = 1; i < argc; ++i) {
+    if (strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "--n") == 0) {
+      if (i + 1 >= argc) {
+        PrintUsageAndExit();
+      }
+      try {
+        parallelism = std::stoi(argv[i + 1]);
+      } catch (const std::exception& e) {
+        PrintUsageAndExit();
+      }
+      i++;
+      continue;
+    }
+    commands.push_back(argv[i]);
+  }
+
+  if (commands.empty()) {
+    PrintUsageAndExit();
+  }
+
+  return {commands, parallelism};
+}
+
 int main(int argc, char* argv[]) {
   if (argc < 2) {
     std::cerr << "Usage: " << argv[0] << " <command1> <command2> ... <commandN>"
@@ -120,26 +179,17 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  int parallelism = 1;
-  int i = 1;
-  if (strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "--n") == 0) {
-    if (i + 1 >= argc) {
-      std::cerr << "Invalid arguments" << std::endl;
-      return 1;
-    }
-    parallelism = std::stoi(argv[i + 1]);
-    i += 2;
-  }
+  const auto [commands, parallelism] = ParseArgs(argc, argv);
 
-  const int count = (argc - i) * parallelism;
+  const int count = commands.size() * parallelism;
   std::vector<std::thread> threads;
   threads.reserve(count);
   std::vector<Stats> stats(count);
   int stat_index = 0;
 
-  for (; i < argc; ++i) {
+  for (const auto command : commands) {
     for (int j = 0; j < parallelism; ++j) {
-      threads.emplace_back(runCommand, argv[i], std::ref(stats[stat_index++]));
+      threads.emplace_back(runCommand, command, std::ref(stats[stat_index++]));
     }
   }
 

@@ -1,1 +1,1 @@
-./parallel -n 3 'echo 1' 'echo 2' 'sleep 1'
+./parallel 'echo "1"' 'echo "Quoted ""2"""' -n 3 'sleep 1'
