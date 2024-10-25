@@ -15,11 +15,15 @@ limitations under the License.
 // Program that runs the provided commands in parallel
 
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <thread>
 #include <vector>
+
+
 
 /* Exit statuses for programs like 'env' that exec other programs.
    Copied from coreutils' system.h */

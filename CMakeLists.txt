@@ -9,3 +9,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 # Add the executable
 add_executable(parallel parallel.cpp)
+
+# Link pthread library
+target_link_libraries(parallel pthread)
